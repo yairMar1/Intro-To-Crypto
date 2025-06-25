@@ -1,5 +1,3 @@
-# File: Tests.py
-
 import unittest
 from Main import encrypt_message, decrypt_message, hex_to_bytes
 
@@ -35,10 +33,6 @@ class MyTestCase(unittest.TestCase):
         self.assertEqual(decrypted, plaintext, "Decryption failed for TestVector 1")
 
     def test_vector_2_multiple_full_blocks(self):
-        """
-        Tests AES-CTR with two full blocks of plaintext.
-        Based on RFC 3686, Test Case 2.
-        """
         print("Running TestVector 2 (Multiple Full Blocks)...")
 
         # 1. Define Test Data
@@ -66,10 +60,6 @@ class MyTestCase(unittest.TestCase):
         self.assertEqual(decrypted, plaintext, "Decryption failed for TestVector 2")
 
     def test_vector_3_partial_last_block(self):
-        """
-        Tests AES-CTR with multiple blocks, where the last block is partial.
-        Based on RFC 3686, Test Case 3.
-        """
         print("Running TestVector 3 (Partial Last Block)...")
 
         # 1. Define Test Data
