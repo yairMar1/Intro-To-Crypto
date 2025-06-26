@@ -26,6 +26,7 @@ S_BOX = (
 )
 
 # Rcon: The round constant
+# For 10 rounds of AES-128, we from 0x00 to 0x36 (10 rounds)
 RCON = (
     0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40,
     0x80, 0x1b, 0x36, 0x6c, 0xd8, 0xab, 0x4d, 0x9a
@@ -48,9 +49,15 @@ def key_expansion(key):
         temp_word = prev_key[12:16]  # Last 4 bytes of the previous key
 
         # RotWord: Circular shift left
+        # temp_word = [A, B, C, D]
+        # temp_word[1:] = [B, C, D] from the second byte to the last
+        # temp_word[:1] = [A] till the second byte (only the first byte)
+
+        # ROTWORD([a0,a1,a2,a3]) = [a1,a2,a3,a0].  This from the article
         temp_word = temp_word[1:] + temp_word[:1]
 
-        # SubWord: Apply S-Box to each byte
+        # SubWord: Apply S-Box to each byte (each byte is replaced by its corresponding value in the S-Box)
+        # SUBWORD([a0,...,a3]) = [SBOX(a0),SBOX(a1),SBOX(a2),SBOX(a3)].   This from the article
         temp_word = [S_BOX[b] for b in temp_word]
 
         # XOR with Rcon
@@ -73,12 +80,12 @@ def key_expansion(key):
 # ==============================================================================
 
 def sub_bytes(state):
-    """Applies the S-Box substitution to each byte of the state."""
+    # Applies the S-Box substitution to each byte of the state.
     return [[S_BOX[b] for b in row] for row in state]
 
 
 def shift_rows(state):
-    """Cyclically shifts the rows of the state."""
+    # Cyclically shifts the rows of the state.
     # Row 0: no shift
     # Row 1: 1-byte shift left
     state[1] = state[1][1:] + state[1][:1]
@@ -90,12 +97,12 @@ def shift_rows(state):
 
 
 def xtime(a):
-    """Helper function for MixColumns: multiplication by x in GF(2^8)."""
+    # Helper function for MixColumns: multiplication by x in GF(2^8).
     return ((a << 1) ^ 0x1b if a & 0x80 else a << 1) & 0xff
 
 
 def mix_single_column(col):
-    """Applies the MixColumns transformation to a single column."""
+    # Applies the MixColumns transformation to a single column.
     t = col[0] ^ col[1] ^ col[2] ^ col[3]
     u = col[0]
     col[0] ^= t ^ xtime(col[0] ^ col[1])
@@ -106,7 +113,7 @@ def mix_single_column(col):
 
 
 def mix_columns(state):
-    """Applies MixColumns to each column of the state."""
+    # Applies MixColumns to each column of the state.
     for i in range(4):
         # Extract column
         col = [state[j][i] for j in range(4)]
@@ -119,7 +126,7 @@ def mix_columns(state):
 
 
 def add_round_key(state, round_key):
-    """XORs the state with the round key."""
+    # XORs the state with the round key.
     for r in range(4):
         for c in range(4):
             # The round key is a flat list, we access it column by column
@@ -166,7 +173,7 @@ def my_aes_encrypt(block, key):
 # ==============================================================================
 
 def bytes_to_hex_string(b):
-    """Helper to display bytes as a hex string."""
+    # Helper to display bytes as a hex string.
     return " ".join(f"{byte:02X}" for byte in b)
 
 
@@ -199,10 +206,6 @@ def encrypt_message(key, nonce, iv, plaintext):
 
 
 def decrypt_message(key, nonce, iv, ciphertext):
-    """
-    Decrypts a message using our custom AES in CTR mode.
-    Note: It's the exact same operation as encryption.
-    """
     return encrypt_message(key, nonce, iv, ciphertext)
 
 
@@ -252,9 +255,9 @@ def main():
     # Final verification
     print("\n--- Verification ---")
     if plaintext == decrypted_text:
-        print("✅ SUCCESS: Decrypted text matches the original plaintext!")
+        print("SUCCESS: Decrypted text matches the original plaintext!")
     else:
-        print("❌ FAILURE: Mismatch between original and decrypted text.")
+        print("FAILURE: Mismatch between original and decrypted text.")
 
 
 if __name__ == "__main__":
