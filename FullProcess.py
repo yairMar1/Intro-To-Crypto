@@ -1,7 +1,7 @@
 import os
 
 # ==============================================================================
-# 1. AES Constants (S-Box, Rcon)
+#    AES Constants (S-Box, Rcon)
 #    These are standard tables for AES-128
 # ==============================================================================
 
@@ -26,26 +26,54 @@ S_BOX = (
 )
 
 # Rcon: The round constant
-# For 10 rounds of AES-128, we from 0x00 to 0x36 (10 rounds)
+# For 10 rounds of AES-128, we from 0x01 to 0x36 (10 rounds)
 RCON = (
     0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40,
-    0x80, 0x1b, 0x36, 0x6c, 0xd8, 0xab, 0x4d, 0x9a
+    0x80, 0x1b, 0x36
 )
 
 
 # ==============================================================================
-# 2. Key Expansion
+#    Key Expansion
 # ==============================================================================
+# NK = 4 (for AES-128)
+# If i is a multiple of Nk, then w[i] = w[i − Nk] ⊕ SUBWORD(ROTWORD(w[i − 1])) ⊕ Rcon[i/Nk].
+# For all other cases, w[i] = w[i−Nk] ⊕ w[i−1].
+#
+# ╔══════════════════════════════════════════════════╗
+# ║                  prev_key                        ║
+# ║   w0         w1         w2         w3            ║
+# ║ [0..3]    [4..7]     [8..11]   [12..15]          ║
+# ╚══════════════════════════════════════════════════╝
+#
+#                         ↓
+#       temp_word = w3 = prev_key[12:16]
+#       temp_word ← RotWord + SubWord + Rcon
+#
+#                         ↓
+# ╔══════════════════════════════════════════════════╗
+# ║                  new_key                         ║
+# ║   w4         w5         w6         w7            ║
+# ║ w0⊕g(w3)  w1⊕w4     w2⊕w5     w3⊕w6              ║
+# ╚══════════════════════════════════════════════════╝
+#
+# g(w3) = SubWord(RotWord(w3)) ⊕ Rcon
+
+
 
 def key_expansion(key):
-    # Expands a 16-byte key into 11 round keys (176 bytes total).
+    if len(key) != 16:
+        raise ValueError("Key must be 16 bytes (128 bits) for AES-128.")
+
+    # Expands a 16-byte key into 11 round keys (176 bytes total). From AES page 17 (PDF page 25)
     key_symbols = [b for b in key] # Make from the key a list of bytes. for example: b'\x41\x42\x43' -> [65, 66, 67]
 
     # The first round key is the original key.
-    round_keys = [key_symbols]
+    round_keys = [key_symbols] # round_keys: [[Key], [K1],..., [K10]]
 
     for i in range(1, 11):
         prev_key = round_keys[-1] # The last key generated
+        #print(bytes_to_hex_string(prev_key))
         temp_word = prev_key[12:16]  # Last 4 bytes of the previous key
 
         # RotWord: Circular shift left
@@ -53,11 +81,11 @@ def key_expansion(key):
         # temp_word[1:] = [B, C, D] from the second byte to the last
         # temp_word[:1] = [A] till the second byte (only the first byte)
 
-        # ROTWORD([a0,a1,a2,a3]) = [a1,a2,a3,a0].  This from the article
+        # ROTWORD([a0,a1,a2,a3]) = [a1,a2,a3,a0].
         temp_word = temp_word[1:] + temp_word[:1]
 
         # SubWord: Apply S-Box to each byte (each byte is replaced by its corresponding value in the S-Box)
-        # SUBWORD([a0,...,a3]) = [SBOX(a0),SBOX(a1),SBOX(a2),SBOX(a3)].   This from the article
+        # SUBWORD([a0,...,a3]) = [SBOX(a0),SBOX(a1),SBOX(a2),SBOX(a3)].
         temp_word = [S_BOX[b] for b in temp_word]
 
         # XOR with Rcon
@@ -76,16 +104,16 @@ def key_expansion(key):
 
 
 # ==============================================================================
-# 3. AES Round Operations
+#    AES Round Operations
 # ==============================================================================
 
 def sub_bytes(state):
-    # Applies the S-Box substitution to each byte of the state.
+    # Applies the S-Box substitution to each byte of the state. AES PAGE: 13 (PDF page 21)
     return [[S_BOX[b] for b in row] for row in state]
 
 
 def shift_rows(state):
-    # Cyclically shifts the rows of the state.
+    # Cyclically shifts the rows of the state. # AES PAGE: 14,15 (PDF pages 22 and 23)
     # Row 0: no shift
     # Row 1: 1-byte shift left
     state[1] = state[1][1:] + state[1][:1]
@@ -97,12 +125,23 @@ def shift_rows(state):
 
 
 def xtime(a):
-    # Helper function for MixColumns: multiplication by x in GF(2^8).
+    # Helper function for MixColumns: multiplication by x in GF(2^8). # AES PAGE: 9
+    # We ask:
+    # If the MSB of 'a' is 1:
+    #   then we do a left shift and XOR with the fix value 0x1b
+    # Else the MSB of 'a' is 0:
+    #   then we do a left shift only
+    # The result is always 1 byte (8 bits), so we mask it with 0xff
     return ((a << 1) ^ 0x1b if a & 0x80 else a << 1) & 0xff
 
 
 def mix_single_column(col):
-    # Applies the MixColumns transformation to a single column.
+    # Applies the MixColumns transformation to a single column. # AES PAGE: 15
+    # The fix matrix:
+    # |02, 03, 01, 01|    |col[0]|
+    # |01, 02, 03, 01|    |col[1]|
+    # |01, 01, 02, 03|  X |col[2]|
+    # |03, 01, 01, 02|    |col[3]|
     t = col[0] ^ col[1] ^ col[2] ^ col[3]
     u = col[0]
     col[0] ^= t ^ xtime(col[0] ^ col[1])
@@ -126,7 +165,7 @@ def mix_columns(state):
 
 
 def add_round_key(state, round_key):
-    # XORs the state with the round key.
+    # XORs the state with the round key. AES page: 16
     for r in range(4):
         for c in range(4):
             # The round key is a flat list, we access it column by column
@@ -135,18 +174,26 @@ def add_round_key(state, round_key):
 
 
 # ==============================================================================
-# 4. Main AES Encryption Function
+#    Main AES Encryption Function
 # ==============================================================================
 
-def my_aes_encrypt(block, key):
-    if len(block) != 16 or len(key) != 16: # AES-128 requires 16-byte blocks and keys
+def my_aes_encrypt(block_counter, round_keys):
+    if len(block_counter) != 16: # AES-128 requires 16-byte blocks and keys
         raise ValueError("Block and key must be 16 bytes long.")
 
-    # Expand the key into round keys
-    round_keys = key_expansion(key)
+    if len(round_keys) != 11 or any(len(rk) != 16 for rk in round_keys):
+        raise ValueError("Round keys must contain 11 keys of 16 bytes each.")
 
     # Convert the 1D block into a 2D state matrix
-    state = [[block[c * 4 + r] for c in range(4)] for r in range(4)]
+    #block: [A0,..., A15]
+    #state: [
+    # [A0, A4, A8, A12],
+    # [A1, A5, A9, A13],
+    # [A2, A6, A10, A14],
+    # [A3, A7, A11, A15]
+    #    ]
+    # AES site pages 6 and 7 (14 and 15 at the PDF)
+    state = [[block_counter[c * 4 + r] for c in range(4)] for r in range(4)]
 
     # Initial round: AddRoundKey
     state = add_round_key(state, round_keys[0])
@@ -158,7 +205,7 @@ def my_aes_encrypt(block, key):
         state = mix_columns(state)
         state = add_round_key(state, round_keys[i])
 
-    # Final round (without MixColumns)
+    # Final round (without MixColumns) AES page: 12 (20 at the PDF)
     state = sub_bytes(state)
     state = shift_rows(state)
     state = add_round_key(state, round_keys[10])
@@ -169,7 +216,7 @@ def my_aes_encrypt(block, key):
 
 
 # ==============================================================================
-# 5. CTR Mode Implementation using our AES
+#    CTR Mode Implementation using our AES
 # ==============================================================================
 
 def bytes_to_hex_string(b):
@@ -179,12 +226,13 @@ def bytes_to_hex_string(b):
 
 def generate_counter_block(nonce, iv, counter):
     counter_bytes = counter.to_bytes(4, byteorder="big") # Convert counter to 4 bytes (big-endian)
-    return nonce + iv + counter_bytes # concatenate nonce, iv, and counter
+    return nonce + iv + counter_bytes # concatenate nonce (4 bytes), iv (8 bytes), and counter (4 bytes)
 
 
 def encrypt_message(key, nonce, iv, plaintext):
     encrypted_blocks = []
     block_size = 16
+    round_keys = key_expansion(key)
 
     # loop through plaintext all blocks is 16 bytes (only the final block can be less than 16 bytes)
     for i in range(0, len(plaintext), block_size):
@@ -194,9 +242,9 @@ def encrypt_message(key, nonce, iv, plaintext):
 
         counter_block = generate_counter_block(nonce, iv, block_number) # concatenate nonce, iv, and counter
 
-        keystream_block = my_aes_encrypt(counter_block, key)
+        keystream_block = my_aes_encrypt(counter_block, round_keys)
 
-        # XOR the plaintext block with the keystream block.
+        # XOR the plaintext block with the keystream block (byte xor byte).
         # The 'zip' function automatically handles the last block if it's partial.
         encrypted_block = bytes([p_byte ^ k_byte for p_byte, k_byte in zip(plaintext_block, keystream_block)])
 
@@ -210,7 +258,7 @@ def decrypt_message(key, nonce, iv, ciphertext):
 
 
 # ==============================================================================
-# 6. Main function for demonstration
+#    Main function for demonstration
 # ==============================================================================
 
 def main():
@@ -244,7 +292,7 @@ def main():
 
     # Decrypt the message
     print("\nDecrypting...")
-    decrypted_text = decrypt_message(key, nonce, iv, ciphertext)
+    decrypted_text = decrypt_message(key, nonce, iv, ciphertext) # NIST SP 800-38A: page 16 (PDF page 23)
 
     try:
         decoded_text = decrypted_text.decode('utf-8')
